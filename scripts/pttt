@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+import sys
+from datetime import datetime, timedelta
+import click
+from pttt.timetable import parse_timetable, parse_time, fit_slots, combine_timetables,\
+        TimetableError, Timetable
+
+DATEFMT = "%d.%m.%Y %H:%M"
+timetable = None
+
+gg = lambda mes: click.secho(mes, file=sys.stderr, fg="green")
+ee = lambda mes: click.secho(mes, file=sys.stderr, fg="red")
+ww = lambda mes: click.secho(mes, file=sys.stderr, fg="yellow")
+
+@click.group(chain=True, invoke_without_command=True)
+@click.option("-i", "--input", type=click.File("r"), multiple=True)
+@click.option("-d", "--datefmt", default=DATEFMT)
+def pttt(**kwargs):
+    global timetable
+
+    timetable = Timetable()
+
+    for i in kwargs["input"]:
+        timetable = combine_timetables(timetable, parse_timetable(i.read(), kwargs["datefmt"]))
+
+@pttt.resultcallback()
+def print_timetable(res, **kwargs):
+    timetable.sort()
+    print(timetable)
+
+@pttt.command()
+@click.option("-f", "--file", type=click.File("r"), required=True)
+@click.option("-p", "--pattern", required=True)
+def rename(file, pattern):
+    for idx, line in enumerate(file):
+        timetable.rename(pattern % idx, line.strip())
+
+@pttt.command()
+@click.option("-d", "--datefmt", default=DATEFMT)
+@click.argument("date")
+def base(date, datefmt):
+    timetable.set_base(datetime.strptime(date, datefmt))
+
+@pttt.command()
+@click.option("-d", "--datefmt", default=DATEFMT)
+@click.option("-s", "--slot", nargs=3, multiple=True)
+def fit(slot, datefmt):
+    slots = [(parse_time(start, datefmt), parse_time(end, datefmt), timedelta(minutes=int(delta)))\
+            for start, end, delta in slot]
+
+    fit_slots(timetable, slots)
+
+if __name__ == "__main__":
+    pttt()
