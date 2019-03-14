@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 import sys
+import operator
+import functools
 from datetime import datetime, timedelta
 import click
-from pttt.timetable import parse_timetable, parse_time, fit_slots, combine_timetables,\
-        TimetableError, Timetable
+from pttt.timetable import parse_timetable, parse_time, fit_slots, TimetableError, Timetable
 
 DATEFMT = "%d.%m.%Y %H:%M"
 timetable = None
@@ -18,10 +19,12 @@ ww = lambda mes: click.secho(mes, file=sys.stderr, fg="yellow")
 def pttt(**kwargs):
     global timetable
 
-    timetable = Timetable()
+    tables = [parse_timetable(i.read(), kwargs["datefmt"]) for i in kwargs["input"]]
 
-    for i in kwargs["input"]:
-        timetable = combine_timetables(timetable, parse_timetable(i.read(), kwargs["datefmt"]))
+    if not tables:
+        raise click.UsageError("No input files")
+
+    timetable = functools.reduce(operator.add, tables)
 
 @pttt.resultcallback()
 def print_timetable(res, **kwargs):
@@ -33,13 +36,14 @@ def print_timetable(res, **kwargs):
 @click.option("-p", "--pattern", required=True)
 def rename(file, pattern):
     for idx, line in enumerate(file):
-        timetable.rename(pattern % idx, line.strip())
+        timetable.labels[pattern % idx].name = line.strip()
 
 @pttt.command()
 @click.option("-d", "--datefmt", default=DATEFMT)
 @click.argument("date")
 def base(date, datefmt):
-    timetable.set_base(datetime.strptime(date, datefmt))
+    global timetable
+    timetable += datetime.strptime(date, datefmt)
 
 @pttt.command()
 @click.option("-d", "--datefmt", default=DATEFMT)

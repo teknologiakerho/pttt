@@ -5,5 +5,7 @@ validation:
 	* konfliktit: ei samaa labelia samaan aikaan
 	* saman verran pelejä/tuomarointeja per label
 	* joukkue/tuomari ei esiinny sarakkeessa jossa ei pitäs
+	* ulise jos uudelleen nimetyt labelit ei oo uniikkeja
+	* [!] renameen joku parempi pattern systeemi joka ulisee jos on liikaa/liian vähän juttuja
 
 combine (per ts)

@@ -6,34 +6,29 @@ from datetime import datetime, timedelta
 class TimetableError(Exception):
     pass
 
-@functools.total_ordering
 class Label:
     
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, key, name=None):
+        self.key = key
+        self.name = name if name is not None else key
 
     def __str__(self):
-        return "<%s>" % self.name
+        return self.name
 
     def __repr__(self):
-        return self.name
+        return "%s<%s>" % (self.name, self.key)
 
-    def __eq__(self, other):
-        return self.name == other.name
+class LabelSet(dict):
 
-    def __lt__(self, other):
-        return self.name < other.name
+    def __setitem__(self, key, val):
+        if key in self:
+            raise TimetableError("Duplicate label: %s" % key)
+        super().__setitem__(key, val)
 
-class LabeledTime(Label):
-
-    def add_delta(self, delta):
-        raise TimetableError("Can't add delta to label")
-
-    def set_base(self, dt):
-        raise TimetableError("Can't set base of label")
-
-    def stringify(self, **kwargs):
-        return self.name
+    def __missing__(self, key):
+        ret = Label(key)
+        self[key] = ret
+        return ret
 
 @functools.total_ordering
 class OffsetTime:
@@ -83,53 +78,77 @@ class AbsoluteTime:
     def stringify(self, datefmt="%d.%m.%Y %H:%M", **kwargs):
         return self.dt.strftime(datefmt)
 
+class Event:
+
+    def __init__(self, time, data):
+        self.time = time
+        self.data = data
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            return Event(self.time, self.data[key])
+        return self.data[key]
+
 class Timetable:
 
-    def __init__(self):
-        self.labels = {}
-        self.events = []
-        self._sorted = True
+    def __init__(self, events=None, labels=None, sorted=True):
+        self._events = events if events is not None else []
+        self._labels = labels
+        self._sorted = sorted
 
     def __str__(self):
         return stringify_timetable(self)
 
-    def label(self, name):
-        ret = self.labels.get(name)
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            rows, cols = key
+            return Timetable(events=[e[cols] for e in self._events[rows]])
 
-        if ret is None:
-            ret = Label(name)
-            self.labels[name] = ret
+        if isinstance(key, slice):
+            return Timetable(events=self._events[key])
+
+        return self._events[key]
+
+    def __add__(self, other):
+        if isinstance(other, datetime):
+            return Timetable(
+                    events=[Event(e.time.set_base(other), e.data) for e in self._events],
+                    labels=self._labels
+            )
+
+        if isinstance(other, timedelta):
+            return Timetable(
+                    events=[Event(e.time.add_delta(other), e.data) for e in self._events],
+                    labels=self._labels
+            )
+
+        if isinstance(other, Timetable):
+            return Timetable(self._events + other.events, sorted=False)
+
+        return Timetable(self._events + other, sorted=False)
+
+    def __iter__(self):
+        yield from self._events
+
+    @property
+    def labels(self):
+        if self._labels is None:
+            self._labels = self._get_label_set()
+
+        return self._labels
+
+    def _get_label_set(self):
+        ret = LabelSet()
+
+        for e in self:
+            for x in e.data:
+                ret[x.key] = x
 
         return ret
 
-    def rename(self, oldlabel, newlabel):
-        if newlabel in self.labels:
-            raise KeyError(newlabel)
-
-        label = self.labels.pop(oldlabel, None)
-
-        if label is None:
-            return
-
-        label.name = newlabel
-        self.labels[newlabel] = label
-        self._sorted = False
-
-    def add(self, time, rest):
-        self.events.append([time, *map(self.label, rest)])
-        self._sorted = False
-
-    def add_delta(self, td):
-        for e in self.events:
-            e[0] = e[0].add_delta(td)
-
-    def set_base(self, dt):
-        for e in self.events:
-            e[0] = e[0].set_base(dt)
-
     def sort(self):
         if not self._sorted:
-            self.events.sort(key=operator.itemgetter(0))
+            self._events.sort(key=operator.attrgetter("time"))
             self._sorted = True
 
 def parse_time(src, datefmt):
@@ -142,28 +161,29 @@ def parse_time(src, datefmt):
     return AbsoluteTime(datetime.strptime(src, datefmt))
 
 def parse_timetable(src, datefmt="+L"):
-    ret = Timetable()
+    labels = LabelSet()
+    events = []
 
     for line in src.splitlines():
         cols = line.split("\t")
-        time, rest = cols[0], cols[1:]
+        time, data = cols[0], cols[1:]
 
         try:
             time = parse_time(time, datefmt)
         except ValueError as e:
             raise TimetableError(e) from e
 
-        ret.add(time, rest)
+        events.append(Event(time, [labels[d] for d in data]))
 
-    return ret
+    return Timetable(events=events, labels=labels, sorted=False)
 
 def stringify_timetable(timetable, datefmt="%d.%m.%Y %H:%M"):
     ret = []
 
-    for e in timetable.events:
+    for e in timetable:
         ret.append("\t".join((
-            e[0].stringify(datefmt=datefmt),
-            *map(operator.attrgetter("name"), e[1:]))
+            e.time.stringify(datefmt=datefmt),
+            *map(operator.attrgetter("name"), e.data))
         ))
 
     return "\n".join(ret)
@@ -172,7 +192,7 @@ def fit_slots(timetable, slots):
     slots = sorted(slots, key=operator.itemgetter(0))
     timetable.sort()
 
-    evs = iter(itertools.groupby(timetable.events, key=operator.itemgetter(0)))
+    evs = iter(itertools.groupby(timetable, key=operator.attrgetter("time")))
 
     for start, end, td in slots:
         time = start
@@ -184,14 +204,8 @@ def fit_slots(timetable, slots):
                 return
 
             for e in es:
-                e[0] = time
+                e.time = time
 
             time = time.add_delta(td)
 
     raise TimetableError("All data not fitted (at %s)" % str(e))
-
-def combine_timetables(timetable1, timetable2):
-    timetable1.labels.update(timetable2.labels)
-    timetable1.events.extend(timetable2.events)
-    timetable1._sorted = False
-    return timetable1
