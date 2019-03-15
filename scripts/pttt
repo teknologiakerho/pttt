@@ -19,8 +19,13 @@ ww = lambda mes: click.secho(mes, file=sys.stderr, fg="yellow")
 @click.group(chain=True, invoke_without_command=True)
 @click.option("-i", "--input", type=click.File("r"), multiple=True)
 @click.option("-d", "--datefmt", default=DATEFMT)
+@click.option("-q", "--quiet", is_flag=True)
 def pttt(**kwargs):
-    global timetable
+    global timetable, ww
+
+    if kwargs["quiet"]:
+        # ei varotuksia
+        ww = lambda mes: 1
 
     tables = [parse_timetable(i.read(), kwargs["datefmt"]) for i in kwargs["input"]]
 
@@ -35,11 +40,30 @@ def print_timetable(res, **kwargs):
     print(timetable)
 
 @pttt.command()
-@click.option("-f", "--file", type=click.File("r"), required=True)
-@click.option("-p", "--pattern", required=True)
-def rename(file, pattern):
-    for idx, line in enumerate(file):
-        timetable.labels[pattern % idx].name = line.strip()
+@click.argument("file", type=click.File("r"))
+def rename(file):
+    done = set()
+
+    for line in file:
+        try:
+            label, replacement = map(str.strip, line.split("\t"))
+        except ValueError:
+            ee("Parse error at line: %s" % line)
+            sys.exit(1)
+
+        if label not in timetable.labels:
+            ee("No such label: %s" % label)
+            sys.exit(1)
+
+        if label in done:
+            ww("Duplicate rename for label: %s" % label)
+
+        timetable.labels[label].name = replacement
+        done.add(label)
+
+    diff = set(timetable.labels).difference(done)
+    if diff:
+        ww("%d un-renamed labels: %s" % (len(diff), list(sorted(diff))))
 
 @pttt.command()
 @click.option("-d", "--datefmt", default=DATEFMT)

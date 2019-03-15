@@ -1,2 +1,0 @@
-xsumo.1
-xsumo.2

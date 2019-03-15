@@ -1,0 +1,21 @@
+T0	RoboBallo
+T1	Matalamobiilit 
+T2	Niiperi A: NIPSU
+T3	Destroyer Bulls
+T4	MarttiS
+T5	TevaBuilders
+T6	xxm2
+T7	Veikkola 3
+T8	5.0.5.
+T9	Mummokiiturit
+T10	Pyörö 1
+T11	Lappeenranta Alakoulu1X
+T12	WAW-robb
+T13	SumoGang Lohja
+T14	Habamimmit
+T15	Neljäraita
+T16	RoboMaster
+J0	Sumotuomari A
+J1	Sumutuomari B
+A0	xsumo.1
+A1	xsumo.2
