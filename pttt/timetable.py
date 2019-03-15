@@ -36,8 +36,8 @@ class OffsetTime:
     def __init__(self, td):
         self.td = td
 
-    def __repr__(self):
-        return repr(self.td)
+    def __str__(self):
+        return self.stringify()
 
     def __eq__(self, other):
         return self.td == other.td
@@ -60,8 +60,8 @@ class AbsoluteTime:
     def __init__(self, dt):
         self.dt = dt
 
-    def __repr__(self):
-        return repr(self.dt)
+    def __str__(self):
+        return self.stringify()
 
     def __eq__(self, other):
         return self.dt == other.dt
@@ -88,6 +88,9 @@ class Event:
         if isinstance(key, slice):
             return Event(self.time, self.data[key])
         return self.data[key]
+
+    def __str__(self):
+        return "%s %s" % (str(self.time), str(self.data))
 
 class Timetable:
 

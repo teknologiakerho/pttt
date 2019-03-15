@@ -1,8 +1,4 @@
 validation:
-	* dimensiot: joka rivillä saman verran sarakkeita
-	* ajoissa ei sekoitettu aikoja ja labeleita
-	* ei tabeja labeleissa
-	* konfliktit: ei samaa labelia samaan aikaan
 	* saman verran pelejä/tuomarointeja per label
 	* joukkue/tuomari ei esiinny sarakkeessa jossa ei pitäs
 	* ulise jos uudelleen nimetyt labelit ei oo uniikkeja

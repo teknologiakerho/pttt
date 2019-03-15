@@ -2,9 +2,12 @@
 import sys
 import operator
 import functools
+import re
 from datetime import datetime, timedelta
 import click
 from pttt.timetable import parse_timetable, parse_time, fit_slots, TimetableError, Timetable
+from pttt.verify import VerifyError, verify_dimensions, verify_labels, verify_conflicts,\
+        verify_count
 
 DATEFMT = "%d.%m.%Y %H:%M"
 timetable = None
@@ -53,6 +56,41 @@ def fit(slot, datefmt):
             for start, end, delta in slot]
 
     fit_slots(timetable, slots)
+
+@pttt.command()
+@click.option("--dimensions/--no-dimensions", default=True)
+@click.option("--labels/--no-labels", default=True)
+@click.option("--conflicts/--no-conflicts", default=True)
+@click.option("-c", "--count", multiple=True)
+def verify(**kwargs):
+    verifiers = {
+        "dimensions": verify_dimensions,
+        "labels": verify_labels,
+        "conflicts": verify_conflicts
+    }
+
+    errors = False
+
+    for k,v in verifiers.items():
+        if kwargs[k]:
+            try:
+                v(timetable)
+            except VerifyError as e:
+                ee("Verify error: [%s] %s" % (k, str(e)))
+                errors = True
+
+    for lp in kwargs["count"]:
+        labels = [l for l in timetable.labels if re.match(lp, l)]
+        try:
+            verify_count(timetable, labels)
+        except VerifyError as e:
+            ee("Verify error: [count] %s" % str(e))
+            errors = True
+
+    if errors:
+        sys.exit(-1)
+
+    gg("Verify OK")
 
 if __name__ == "__main__":
     pttt()
