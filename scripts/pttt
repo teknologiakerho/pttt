@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import click
 from pttt.timetable import parse_timetable, parse_time, fit_slots, TimetableError, Timetable
 from pttt.verify import VerifyError, verify_dimensions, verify_labels, verify_conflicts,\
-        verify_count
+        verify_count, verify_unique
 
 DATEFMT = "%d.%m.%Y %H:%M"
 timetable = None
@@ -85,12 +85,14 @@ def fit(slot, datefmt):
 @click.option("--dimensions/--no-dimensions", default=True)
 @click.option("--labels/--no-labels", default=True)
 @click.option("--conflicts/--no-conflicts", default=True)
+@click.option("--unique/--no-unique", default=True)
 @click.option("-c", "--count", multiple=True)
 def verify(**kwargs):
     verifiers = {
         "dimensions": verify_dimensions,
         "labels": verify_labels,
-        "conflicts": verify_conflicts
+        "conflicts": verify_conflicts,
+        "unique": verify_unique
     }
 
     errors = False

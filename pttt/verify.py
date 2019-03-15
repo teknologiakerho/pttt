@@ -52,6 +52,14 @@ def verify_conflicts(timetable):
                 raise VerifyError("Label %s conflict (row: %s)" % (repr(l), str(r)))
             s.add(l.key)
 
+def verify_unique(timetable):
+    names = {}
+
+    for l in timetable.labels.values():
+        if l.name in names:
+            raise VerifyError("Duplicate label: %s / %s" % (repr(names[l.name]), repr(l)))
+        names[l.name] = l
+
 def verify_count(timetable, labels):
     counts = dict((l, 0) for l in labels)
 
