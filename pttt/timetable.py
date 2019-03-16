@@ -63,6 +63,9 @@ class AbsoluteTime:
     def __str__(self):
         return self.stringify()
 
+    def __int__(self):
+        return int(self.dt.timestamp())
+
     def __eq__(self, other):
         return self.dt == other.dt
 
@@ -88,6 +91,9 @@ class Event:
         if isinstance(key, slice):
             return Event(self.time, self.data[key])
         return self.data[key]
+
+    def __len__(self):
+        return len(self.data)
 
     def __str__(self):
         return "%s %s" % (str(self.time), str(self.data))
@@ -133,6 +139,12 @@ class Timetable:
     def __iter__(self):
         yield from self._events
 
+    def __len__(self):
+        return len(self._events)
+
+    def __bool__(self):
+        return bool(self._events)
+
     @property
     def labels(self):
         if self._labels is None:
@@ -145,7 +157,8 @@ class Timetable:
 
         for e in self:
             for x in e.data:
-                ret[x.key] = x
+                if x.key not in ret:
+                    ret[x.key] = x
 
         return ret
 
@@ -164,7 +177,6 @@ def parse_time(src, datefmt):
     return AbsoluteTime(datetime.strptime(src, datefmt))
 
 def parse_timetable(src, datefmt="+L"):
-    labels = LabelSet()
     events = []
 
     for line in src.splitlines():
@@ -176,9 +188,9 @@ def parse_timetable(src, datefmt="+L"):
         except ValueError as e:
             raise TimetableError(e) from e
 
-        events.append(Event(time, [labels[d] for d in data]))
+        events.append((time, data))
 
-    return Timetable(events=events, labels=labels, sorted=False)
+    return create_timetable(events, sorted=False)
 
 def stringify_timetable(timetable, datefmt="%d.%m.%Y %H:%M"):
     ret = []
@@ -190,6 +202,14 @@ def stringify_timetable(timetable, datefmt="%d.%m.%Y %H:%M"):
         ))
 
     return "\n".join(ret)
+
+def create_timetable(events, **kwargs):
+    labels = LabelSet()
+    return Timetable(
+        events=[Event(time, [labels[d] for d in data]) for time,data in events],
+        labels=labels,
+        **kwargs
+    )
 
 def fit_slots(timetable, slots):
     slots = sorted(slots, key=operator.itemgetter(0))
