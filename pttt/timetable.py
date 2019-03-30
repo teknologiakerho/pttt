@@ -205,6 +205,10 @@ class Timetable:
             self._events.sort(key=operator.attrgetter("time"))
             self._sorted = True
 
+    def normalize(self):
+        min_time = min(e.time for e in self._events)
+        return self - min_time
+
     def tostring(self, **kwargs):
         ret = []
 

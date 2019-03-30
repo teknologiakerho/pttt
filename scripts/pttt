@@ -113,6 +113,15 @@ def base(arg, dfmt):
     timetable += time
 
 @pttt_command.command()
+def normalize():
+    global timetable, datefmt
+    timetable = timetable.normalize()
+
+    if datefmt[0] != "+":
+        datefmt = "+M"
+        vv("normalize: reset date format to relative +M")
+
+@pttt_command.command()
 @click.option("-d", "--datefmt", "dfmt")
 @click.option("-D", "--deltafmt", "Dfmt")
 @click.option("-s", "--slot", nargs=3, multiple=True)
