@@ -5,41 +5,57 @@ import functools
 import re
 from datetime import datetime, timedelta
 import click
-from pttt.timetable import parse_timetable, parse_time, fit_slots, TimetableError, Timetable
+import pttt
 from pttt.verify import VerifyError, verify_dimensions, verify_labels, verify_conflicts,\
         verify_count, verify_unique
 
-DATEFMT = "%d.%m.%Y %H:%M"
+datefmt = None
 timetable = None
 
 gg = lambda mes: click.secho(mes, file=sys.stderr, fg="green")
 ee = lambda mes: click.secho(mes, file=sys.stderr, fg="red")
 ww = lambda mes: click.secho(mes, file=sys.stderr, fg="yellow")
+vv = lambda mes: click.echo(mes, file=sys.stderr)
 
 @click.group(chain=True, invoke_without_command=True)
 @click.option("-i", "--input", type=click.File("r"), multiple=True)
-@click.option("-d", "--datefmt", default=DATEFMT)
+@click.option("-d", "--datefmt", default="infer")
 @click.option("-q", "--quiet", is_flag=True)
-def pttt(**kwargs):
-    global timetable, ww
+def pttt_command(**kwargs):
+    global timetable, datefmt, ww, vv
 
     if kwargs["quiet"]:
         # ei varotuksia
-        ww = lambda mes: 1
+        # eikä spämmiä
+        vv = ww = lambda *args, **kwargs: 1
 
-    tables = [parse_timetable(i.read(), kwargs["datefmt"]) for i in kwargs["input"]]
+    tables = [i.read() for i in kwargs["input"]]
 
     if not tables:
-        raise click.UsageError("No input files")
+        return
 
+    if kwargs["datefmt"] == "infer":
+        s = tables[0].strip()
+        s = s[:s.index("\t")]
+        datefmt = pttt.infer_timefmt(s)
+        vv("Inferred time format: %s" % datefmt)
+    else:
+        datefmt = kwargs["datefmt"]
+
+    tables = (pttt.parse_timetable(t, datefmt) for t in tables)
     timetable = functools.reduce(operator.add, tables)
 
-@pttt.resultcallback()
+@pttt_command.resultcallback()
 def print_timetable(res, **kwargs):
     timetable.sort()
-    print(timetable)
 
-@pttt.command()
+    if datefmt[0] == "+":
+        unit = pttt.get_time_parser(datefmt)(1)
+        print(timetable.tostring(unit=unit))
+    else:
+        print(timetable.tostring(dateformat=datefmt))
+
+@pttt_command.command()
 @click.argument("file", type=click.File("r"))
 def rename(file):
     done = set()
@@ -65,23 +81,58 @@ def rename(file):
     if diff:
         ww("%d un-renamed labels: %s" % (len(diff), list(sorted(diff))))
 
-@pttt.command()
-@click.option("-d", "--datefmt", default=DATEFMT)
-@click.argument("date")
-def base(date, datefmt):
-    global timetable
-    timetable += datetime.strptime(date, datefmt)
+@pttt_command.command()
+@click.option("-d", "--datefmt", "dfmt")
+@click.argument("arg")
+def base(arg, dfmt):
+    global timetable, datefmt
 
-@pttt.command()
-@click.option("-d", "--datefmt", default=DATEFMT)
+    if dfmt is None:
+        parser = pttt.get_time_parser(datefmt)
+
+        try:
+            time = parser(arg)
+        except:
+            fmt = pttt.infer_timefmt(arg)
+            parser = pttt.get_time_parser(fmt)
+        else:
+            fmt = datefmt
+    else:
+        fmt = dfmt
+
+    parser = pttt.get_time_parser(fmt)
+    time = parser(arg)
+
+    if dfmt is None:
+        vv("base: inferred base time: %s" % time)
+
+    if fmt[0] != "+":
+        vv("base: changing absolute inferred time format: %s" % fmt)
+        datefmt = fmt
+
+    timetable += time
+
+@pttt_command.command()
+@click.option("-d", "--datefmt", "dfmt")
+@click.option("-D", "--deltafmt", "Dfmt")
 @click.option("-s", "--slot", nargs=3, multiple=True)
-def fit(slot, datefmt):
-    slots = [(parse_time(start, datefmt), parse_time(end, datefmt), timedelta(minutes=int(delta)))\
-            for start, end, delta in slot]
+def fit(slot, dfmt, Dfmt):
+    if dfmt is None:
+        dfmt = datefmt
 
-    fit_slots(timetable, slots)
+    if Dfmt is None:
+        if dfmt[0] == "+":
+            Dfmt = dfmt
+        else:
+            Dfmt = "+M"
+        vv("fit: inferred delta format: %s" % Dfmt)
 
-@pttt.command()
+    dp = pttt.get_time_parser(dfmt)
+    Dp = pttt.get_time_parser(Dfmt)
+    slots = [(dp(start), dp(end), Dp(delta)) for start, end, delta in slot]
+    pttt.fit_slots(timetable, slots)
+
+@pttt_command.command()
 @click.option("--dimensions/--no-dimensions", default=True)
 @click.option("--labels/--no-labels", default=True)
 @click.option("--conflicts/--no-conflicts", default=True)
@@ -119,4 +170,4 @@ def verify(**kwargs):
     gg("Verify OK")
 
 if __name__ == "__main__":
-    pttt()
+    pttt_command()

@@ -30,56 +30,73 @@ class LabelSet(dict):
         self[key] = ret
         return ret
 
-@functools.total_ordering
-class OffsetTime:
+class relative_time:
 
-    def __init__(self, td):
-        self.td = td
+    @staticmethod
+    def __add__(other):
+        if other is absolute_time:
+            return absolute_time
+        return relative_time
 
-    def __str__(self):
-        return self.stringify()
+    @staticmethod
+    def __sub__(other):
+        if other is absolute_time:
+            raise TypeError("Can't sub absolute time from relative")
+        return relative_time
 
-    def __eq__(self, other):
-        return self.td == other.td
+    @staticmethod
+    def __str__():
+        return "relative"
 
-    def __lt__(self, other):
-        return self.td < other.td
+    @staticmethod
+    def tostring(ts, unit=timedelta(minutes=1)):
+        return "%d" % (ts / unit)
 
-    def add_delta(self, delta):
-        return OffsetTime(self.td + delta)
+relative_time = relative_time()
 
-    def set_base(self, dt):
-        return AbsoluteTime(dt + self.td)
+class absolute_time:
 
-    def stringify(self, **kwargs):
-        return "%d" % (self.td / timedelta(minutes=1))
+    @staticmethod
+    def __add__(other):
+        if other is absolute_time:
+            raise TypeError("Can't add absolute times")
+        return absolute_time
 
-@functools.total_ordering
-class AbsoluteTime:
+    @staticmethod
+    def __sub__(other):
+        if other is absolute_time:
+            return relative_time
+        return absolute_time
 
-    def __init__(self, dt):
-        self.dt = dt
+    @staticmethod
+    def __str__():
+        return "absolute"
 
-    def __str__(self):
-        return self.stringify()
+    @staticmethod
+    def tostring(ts, dateformat="%d.%m.%Y %H:%M"):
+        return ts.strftime(dateformat)
 
-    def __int__(self):
-        return int(self.dt.timestamp())
+absolute_time = absolute_time()
 
-    def __eq__(self, other):
-        return self.dt == other.dt
+_time_fmts = (relative_time, absolute_time)
 
-    def __lt__(self, other):
-        return self.dt < other.dt
+def gettimefmt(fmt):
+    if isinstance(fmt, str):
+        if fmt == "relative":
+            return relative_time
+        if fmt == "absolute":
+            return absolute_time
 
-    def add_delta(self, delta):
-        return AbsoluteTime(self.dt + delta)
+    if isinstance(fmt, timedelta):
+        return relative_time
 
-    def set_base(self, dt):
-        raise TimetableError("Can't set base of absolute time")
+    if isinstance(fmt, datetime):
+        return absolute_time
 
-    def stringify(self, datefmt="%d.%m.%Y %H:%M", **kwargs):
-        return self.dt.strftime(datefmt)
+    if fmt in _time_fmts:
+        return fmt
+
+    raise TimetableError("No such format '%s'" % fmt)
 
 class Event:
 
@@ -100,41 +117,68 @@ class Event:
 
 class Timetable:
 
-    def __init__(self, events=None, labels=None, sorted=True):
+    def __init__(self, time_fmt=None, events=None, labels=None, sorted=False):
+        if time_fmt is None:
+            if not events:
+                raise ValueError("No time_fmt and no events, can't infer format")
+            time_fmt = events[0].time
+
+        self._time_fmt = gettimefmt(time_fmt)
         self._events = events if events is not None else []
         self._labels = labels
         self._sorted = sorted
 
-    def __str__(self):
-        return stringify_timetable(self)
-
     def __getitem__(self, key):
         if isinstance(key, tuple):
             rows, cols = key
-            return Timetable(events=[e[cols] for e in self._events[rows]])
+            return Timetable(
+                    time_fmt=self._time_fmt,
+                    events=[e[cols] for e in self._events[rows]],
+                    sorted=self._sorted
+            )
 
         if isinstance(key, slice):
-            return Timetable(events=self._events[key])
+            return Timetable(
+                    time_fmt=self._time_fmt,
+                    events=self._events[key],
+                    sorted=self._sorted
+            )
 
         return self._events[key]
 
     def __add__(self, other):
-        if isinstance(other, datetime):
+        if type(other) in (timedelta, datetime):
             return Timetable(
-                    events=[Event(e.time.set_base(other), e.data) for e in self._events],
-                    labels=self._labels
-            )
-
-        if isinstance(other, timedelta):
-            return Timetable(
-                    events=[Event(e.time.add_delta(other), e.data) for e in self._events],
-                    labels=self._labels
+                    time_fmt=self._time_fmt + gettimefmt(other),
+                    events=[Event(e.time + other, e.data) for e in self._events],
+                    labels=self._labels,
+                    sorted=self._sorted
             )
 
         if isinstance(other, Timetable):
-            return Timetable(self._events + other.events, sorted=False)
+            if self._time_fmt is not other._time_fmt:
+                raise TypeError("Can't add differing time formats")
+            return Timetable(
+                    time_fmt=self._time_fmt,
+                    events=self._events + other.events,
+                    sorted=False
+            )
 
-        return Timetable(self._events + other, sorted=False)
+        raise TypeError(other)
+
+    def __sub__(self, other):
+        if type(other) in (timedelta, datetime):
+            return Timetable(
+                    time_fmt=self._time_fmt - gettimefmt(other),
+                    events=[Event(e.time - other, e.data) for e in self._events],
+                    labels=self._labels,
+                    sorted=self._sorted
+            )
+
+        raise TypeError(other)
+
+    def __str__(self):
+        return self.tostring()
 
     def __iter__(self):
         yield from self._events
@@ -152,6 +196,26 @@ class Timetable:
 
         return self._labels
 
+    @property
+    def time_format(self):
+        return str(self._time_fmt)
+
+    def sort(self):
+        if not self._sorted:
+            self._events.sort(key=operator.attrgetter("time"))
+            self._sorted = True
+
+    def tostring(self, **kwargs):
+        ret = []
+
+        for e in self:
+            ret.append("\t".join((
+                self._time_fmt.tostring(e.time, **kwargs),
+                *map(operator.attrgetter("name"), e.data))
+            ))
+
+        return "\n".join(ret)
+
     def _get_label_set(self):
         ret = LabelSet()
 
@@ -162,46 +226,68 @@ class Timetable:
 
         return ret
 
-    def sort(self):
-        if not self._sorted:
-            self._events.sort(key=operator.attrgetter("time"))
-            self._sorted = True
-
 def parse_time(src, datefmt):
-    #if datefmt == "+L":
-    #    return LabelTime(src)
-
     if datefmt == "+M":
         return OffsetTime(timedelta(minutes=int(src)))
     
     return AbsoluteTime(datetime.strptime(src, datefmt))
 
-def parse_timetable(src, datefmt="+L"):
+def infer_timefmt(time, relative_fmt="+M", absolute_fmt="%d.%m.%Y %H:%M"):
+    try:
+        int(time)
+    except ValueError:
+        pass
+    else:
+        return relative_fmt
+
+    try:
+        datetime.strptime(time, absolute_fmt)
+    except ValueError:
+        pass
+    else:
+        return absolute_fmt
+
+    raise ValueError("%s is not of either format (%s, %s)" % (time, relative_fmt, absolute_fmt))
+
+_timedelta_keywords = {
+        "S": "seconds",
+        "M": "minutes",
+        "H": "hours"
+}
+
+def get_time_parser(time_fmt):
+    if time_fmt[0] == "+":
+        kw = _timedelta_keywords[time_fmt[1]]
+        return lambda s: timedelta(**{kw: int(s)})
+
+    return lambda s: datetime.strptime(s, time_fmt)
+
+def parse_timetable(src, time_fmt=None):
+    lines = (l.split("\t") for l in src.splitlines())
+    td = ((l[0], l[1:]) for l in lines)
+
     events = []
 
-    for line in src.splitlines():
-        cols = line.split("\t")
-        time, data = cols[0], cols[1:]
-
+    if time_fmt is None:
         try:
-            time = parse_time(time, datefmt)
-        except ValueError as e:
-            raise TimetableError(e) from e
+            time, data = next(td)
+        except StopIteration:
+            # Tyhjä data ja ei aikatauluformaattia annettu joten ei väliä mitä laitetaan
+            return Timetable(relative_time)
 
-        events.append((time, data))
+        parser = get_time_parser(infer_timefmt(time))
+        events.append((parser(time), data))
+    else:
+        parser = get_time_parser(time_fmt)
 
-    return create_timetable(events, sorted=False)
+    for time, data in td:
+        events.append((parser(time), data))
 
-def stringify_timetable(timetable, datefmt="%d.%m.%Y %H:%M"):
-    ret = []
-
-    for e in timetable:
-        ret.append("\t".join((
-            e.time.stringify(datefmt=datefmt),
-            *map(operator.attrgetter("name"), e.data))
-        ))
-
-    return "\n".join(ret)
+    return create_timetable(
+            events,
+            time_fmt="relative" if time_fmt[0] == "+" else "absolute",
+            sorted=False
+    )
 
 def create_timetable(events, **kwargs):
     labels = LabelSet()
@@ -229,6 +315,6 @@ def fit_slots(timetable, slots):
             for e in es:
                 e.time = time
 
-            time = time.add_delta(td)
+            time += td
 
     raise TimetableError("All data not fitted (at %s)" % str(e))
