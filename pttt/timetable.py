@@ -230,12 +230,6 @@ class Timetable:
 
         return ret
 
-def parse_time(src, datefmt):
-    if datefmt == "+M":
-        return OffsetTime(timedelta(minutes=int(src)))
-    
-    return AbsoluteTime(datetime.strptime(src, datefmt))
-
 def infer_timefmt(time, relative_fmt="+M", absolute_fmt="%d.%m.%Y %H:%M"):
     try:
         int(time)
